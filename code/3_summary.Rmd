@@ -1,0 +1,111 @@
+---
+title: "NBS 2023 - quick look at samples"
+author: "Kimberly Ledger"
+date: "2025-01-29"
+output: html_document
+---
+
+libraries
+```{r}
+library(tidyverse)
+rename <- dplyr::rename
+library(vegan)
+library(ggplot2)
+```
+
+input decontaminated ASV table
+```{r}
+asv_table <- read.csv("/home/kimberly.ledger/NBS23_mifish_mb/outputs/decontaminated_asv_table.csv") %>%
+  select(!X) %>%
+  separate(sample_ID_date, into = c("extraction_ID", "replicate", "seq_date2"), sep = "-", remove = F) %>%
+  unite(sample_ID, "extraction_ID", "replicate", sep = "-", remove = F)
+```
+
+join the taxonomic assignments
+```{r}
+taxonomy <- read.csv("/home/kimberly.ledger/NBS23_mifish_mb/outputs/taxonomy_20250129_collapsed.csv") %>%
+  select(!X) %>%
+  rename(ASV = qseqid)
+```
+
+```{r}
+taxon_table <- asv_table %>%
+  select(sample_ID, sample_type, ASV, reads) %>%
+  left_join(taxonomy, by = "ASV") %>%
+  group_by(sample_ID, sample_type, taxon, taxonomic_level, species, genus, family, order, class, kingdom) %>%
+  summarize(reads = sum(reads))
+```
+
+## check out the taxa and reads in the field blanks 
+```{r}
+nbs23_fb <- taxon_table %>%
+  filter(sample_type == "field_blank") %>%
+  filter(reads > 0)
+```
+
+```{r}
+nbs23_fb %>%
+  ggplot(aes(x=sample_ID, y=reads, fill=taxon)) +
+  geom_bar(stat = "identity") + 
+    theme_bw() +
+  labs(
+    y = "number of sequencing reads",
+    x = "sample ID",
+    title = "reads in field negatives") + 
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 0.95),
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.3, "cm"),
+    #legend.position = "none",
+    legend.title = element_blank()
+  )
+```
+
+read in the sample metadata needed for this step - this is only the field samples (i.e. field blanks not included)
+```{r}
+metadata <- read.csv("/home/kimberly.ledger/NBS23_mifish_mb/data/NBS23_metadata.csv") %>%
+  #filter(sample_type == "sample") %>%  ## not including field blanks here
+  select(extraction_ID, alternative_ID, collection_year, collection_month, collection_day, location1, depth, longitude, latitude)
+```
+
+```{r}
+taxon_table <- taxon_table %>%
+  mutate(sample_ID = gsub("D", "A", sample_ID),
+         sample_ID = gsub("E", "B", sample_ID),
+         sample_ID = gsub("F", "C", sample_ID)) %>%
+  separate(sample_ID, into = c("extraction_ID", "replicate"), sep = "-", remove = F)
+```
+
+join the taxon table to the sample metadata
+```{r}
+nbs23 <- metadata %>%
+  left_join(taxon_table, by = "extraction_ID") %>%
+  mutate(reads = as.integer(reads)) %>%
+  filter(reads > 0)
+```
+
+look at how many reads were assigned to pollock and pcod vs gadus 
+```{r}
+nbs23 %>%
+  filter(genus == "Gadus") %>%
+  group_by(taxon) %>%
+  summarize(total = sum(reads)) %>%
+  mutate(all_gadus = sum(total),
+         prop = total/all_gadus) 
+```
+
+```{r}
+nbs23 %>%
+  filter(genus == "Oncorhynchus") %>%
+  group_by(taxon) %>%
+  summarize(total = sum(reads)) %>%
+  mutate(all_onc = sum(total),
+         prop = total/all_onc) 
+```
+
+save 
+```{r}
+write.csv(nbs23, "/home/kimberly.ledger/NBS23_mifish_mb/outputs/nbs23_taxon_reads.csv")
+```
+
+

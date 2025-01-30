@@ -1,0 +1,270 @@
+---
+title: "PCR replicate decontamination - NBS2023 mifish"
+author: "Kimberly Ledger"
+date: "2025-01-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+libraries
+```{r}
+library(tidyverse)
+rename <- dplyr::rename
+```
+
+load sample type and other library prep info
+```{r}
+sample_metadata <- read.csv("/home/kimberly.ledger/NBS23_mifish_mb/data/NBS23_mifish_sample_metadata.csv")
+
+#illumina output changed "_" to "-"
+sample_metadata$sample_ID <- gsub("_", "-", sample_metadata$sample_ID) 
+sample_metadata$sample_ID_date <- gsub("_", "-", sample_metadata$sample_ID_date) 
+
+sample_metadata <- sample_metadata %>%
+  filter(sample_ID_date != "NC-6-C-20240509")  ## no seq data for this negative control
+```
+
+check sequence table outputs
+```{r}
+asv_table <- readRDS("/home/kimberly.ledger/NBS23_mifish_mb/data/dadasnake_output/filtered.seqTab.RDS") %>%
+  select(!Row.names)
+
+#transpose 
+asv_table <- data.frame(t(asv_table))
+
+#set column names to be ASV# 
+colnames(asv_table) <- asv_table["ASV",]
+
+#remove row that has ASV#
+asv_table <- asv_table[!rownames(asv_table) %in% c('ASV'), ]
+
+#make sure reads are numbers
+# Convert all character columns to numeric
+for (col in names(asv_table)) {
+  asv_table[[col]] <- as.numeric(asv_table[[col]])
+}
+
+#make make sample ID a column 
+asv_table$sample_ID_date <- rownames(asv_table)
+```
+
+
+add column to the ASV table that labels the sample type
+```{r}
+asv_table_with_sample_type <- sample_metadata %>%
+  dplyr::select(sample_ID_date, sample_type, collection_year, project, seq_date) %>%
+  left_join(asv_table, by = "sample_ID_date") %>%
+  unite(col = "project_year", project, collection_year, sep = "_", remove = F)
+
+# make a variable for the first and last ASV column in the table
+asv_first <- which(colnames(asv_table_with_sample_type) == "ASV_0741")
+asv_last <- ncol(asv_table_with_sample_type)
+```
+
+
+# account for likely contaminants 
+
+## Step 1. Account for tag-jumping by using the positive controls 
+
+subtract the proportion of reads that jumped into the positive control samples from each environmental sample 
+
+identify the maximum proportion of reads for each ASV found in the positive controls
+
+```{r}
+prop_asvs_in_positives <- asv_table_with_sample_type %>%
+  filter(sample_type == "positive") %>%
+  pivot_longer(cols = c(asv_first:asv_last), names_to = "ASV", values_to = "reads") %>%
+  group_by(sample_ID_date) %>%
+  mutate(TotalReadsPerSample = sum(reads)) %>%
+  mutate(Prop = reads/TotalReadsPerSample) %>%
+  group_by(ASV) %>%
+  summarise(max_prop = max(Prop)) %>%
+  arrange(desc(max_prop))
+prop_asvs_in_positives
+```
+
+subtract the max proportion of tag-jumped reads for each ASV from samples
+```{r}
+indexhop_table <- asv_table_with_sample_type %>%
+  pivot_longer(cols = c(asv_first:asv_last), names_to = "ASV", values_to = "reads") %>%
+  mutate(reads = ifelse(is.na(reads), 0, reads)) %>%
+  group_by(sample_ID_date) %>%
+  mutate(TotalReadsPerSample = sum(reads, na.rm = T)) %>%
+  left_join(prop_asvs_in_positives, by = "ASV") %>%
+  mutate(IndexHoppingReads = TotalReadsPerSample*max_prop) %>%
+  mutate(reads_IndexHop_removed = reads - IndexHoppingReads) %>%
+  mutate(reads_IndexHop_removed = if_else(reads_IndexHop_removed < 0, 0, reads_IndexHop_removed))
+head(indexhop_table)
+```
+
+clean up the table by removing columns no longer needed 
+```{r}
+asv_table_filter1 <- indexhop_table %>%
+  dplyr::select(sample_ID_date, sample_type, project_year, collection_year, project, seq_date, ASV, reads_IndexHop_removed) %>%
+  dplyr::rename(reads = reads_IndexHop_removed)
+```
+
+## Step 2. Remove ASVs that don't get a fish taxonomic assignment  
+
+```{r}
+taxonomy <- read.csv("/home/kimberly.ledger/NBS23_mifish_mb/outputs/taxonomy_20250129_collapsed.csv") %>%
+  select(!X) %>%
+  rename(ASV = qseqid)
+
+asv_table_filter2 <- asv_table_filter1 %>%
+  filter(ASV %in% taxonomy$ASV)
+```
+
+
+## Step 3. Account for contaminants in negative controls 
+
+next we will remove ASVs that only occur in controls and not in environmental samples. 
+
+number of reads
+```{r}
+reads_per_type_ASV <- asv_table_filter2 %>%
+  group_by(ASV, sample_type) %>%
+  summarize(TotalReadsPerASV = sum(reads, na.rm = TRUE)) %>%
+  arrange(ASV)
+```
+
+what ASVs have no reads in samples, but reads in the controls? 
+```{r}
+not_in_samples <- reads_per_type_ASV %>%
+  pivot_wider(names_from = "sample_type", values_from = c("TotalReadsPerASV")) %>%
+    filter(sample < 1)
+not_in_samples
+```
+
+
+what ASVs do have reads in samples, but more reads in the controls? 
+```{r}
+more_in_pcr_blanks <- reads_per_type_ASV %>%
+  pivot_wider(names_from = "sample_type", values_from = c("TotalReadsPerASV")) %>%
+  filter(sample > 1) %>%
+  filter(pcr_blank > sample)
+head(more_in_pcr_blanks)
+
+more_in_pc_blanks <- reads_per_type_ASV %>%
+  pivot_wider(names_from = "sample_type", values_from = c("TotalReadsPerASV")) %>%
+  filter(sample > 1) %>%
+  filter(positive > sample)
+head(more_in_pc_blanks)
+
+more_in_fb_blanks <- reads_per_type_ASV %>%
+  pivot_wider(names_from = "sample_type", values_from = c("TotalReadsPerASV")) %>%
+  filter(sample > 1) %>%
+  filter(field_blank > sample)
+head(more_in_fb_blanks)
+```
+
+remove asvs with no reads in field samples 
+```{r}
+asv_table_filter3 <- asv_table_filter2 %>%
+  filter(!ASV %in% not_in_samples$ASV)
+```
+
+
+## Step 4. Consider what is still in the negative controls
+
+```{r}
+asv_table_filter3 %>%
+  filter(sample_type %in% c("pcr_blank")) %>%
+  filter(reads > 0) %>%
+  ggplot(aes(x=sample_ID_date, y=reads, fill=ASV)) +
+  geom_bar(stat = "identity") + 
+  theme_bw() +
+  facet_grid(~sample_type, scales = "free_x") + 
+  labs(
+    y = "number of sequencing reads",
+    x = "sample ID",
+    title = "") + 
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 0.95),
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.3, "cm"),
+    #legend.position = "none",
+    legend.title = element_blank()
+  )
+```
+
+plot by project and year 
+```{r}
+asv_table_filter3 %>%
+  filter(sample_type %in% c("field_blank")) %>%
+  filter(reads > 0) %>%
+  ggplot(aes(x=sample_ID_date, y=reads, fill=ASV)) +
+  geom_bar(stat = "identity") + 
+  theme_bw() +
+  facet_grid(~sample_type, scales = "free_x") + 
+  labs(
+    y = "number of sequencing reads",
+    x = "sample ID",
+    title = "") + 
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 0.95),
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.3, "cm"),
+    #legend.position = "none",
+    legend.title = element_blank()
+  )
+```
+
+## Step 5. Remove low read depth samples based on ASV accumulation curve
+
+```{r}
+library(vegan)
+
+asv_table_wide <- asv_table_filter3 %>%
+  select(!sample_type) %>%
+  mutate(reads = as.integer(reads)) %>%
+  pivot_wider(names_from = ASV, values_from = reads)
+
+sample_IDs <- asv_table_wide$sample_ID_date
+
+asv_table_wide <- asv_table_wide %>%
+  ungroup() %>%
+  select(-c(sample_ID_date,project_year,collection_year, project, seq_date))
+
+## plots the figure
+rarecurve(asv_table_wide, step = 20, col = "blue", label = FALSE, 
+          main = "Sequencing Effort Curves",
+          xlab = "Sequencing Depth", ylab = "Number of ASVs Identified",
+          xlim = c(0,5000))
+```
+
+summarize in a table how many pcr replicates meet certain read count thresholds 
+```{r}
+read_summary <- asv_table_filter3 %>%
+  group_by(sample_ID_date, sample_type) %>%
+  summarize(tot_reads = sum(reads)) %>%
+  arrange(desc(tot_reads)) %>%
+  group_by(sample_type) %>%
+  summarize(atleast1 = sum(tot_reads >= 1),
+            atleast250 = sum(tot_reads >= 250),
+            atleast500 = sum(tot_reads >= 500),
+            atleast750 = sum(tot_reads >= 750),
+            atleast1k = sum(tot_reads >= 1000),
+            atleast2k = sum(tot_reads >= 2000))
+```
+
+based on taxa accumulation curve and summary table, we will remove any pcr replicate with fewer than 1000 reads from downstream analyses
+
+```{r}
+reps_below <- asv_table_filter3 %>%
+  group_by(sample_ID_date) %>%
+  summarise(tot_reads = sum(reads)) %>%
+  filter(tot_reads < 250)
+```
+
+```{r}
+asv_table_filter4 <- asv_table_filter3 %>%
+  filter(!sample_ID_date %in% reps_below$sample_ID_date)
+```
+
+```{r}
+write.csv(asv_table_filter4, "/home/kimberly.ledger/NBS23_mifish_mb/outputs/decontaminated_asv_table.csv")
+```

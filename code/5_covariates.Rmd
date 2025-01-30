@@ -1,0 +1,101 @@
+---
+title: "getting some environmental covariates"
+output: html_document
+date: "2025-01-30"
+---
+
+extract a few environmental covariates from eDNA sampling locations on NBS 2023 survey
+
+```{r}
+library(tidyverse)
+#install.packages("sf")
+#packageVersion("sf")
+#devtools::install_github("sean-rohan-NOAA/akgfmaps", build_vignettes = TRUE)
+library(akgfmaps)
+#devtools::install_github("afsc-gap-products/coldpool")
+library(coldpool)
+```
+
+cold pool/ nbs_ebs temperatures 
+```{r}
+nbs_ebs_bt <- terra::unwrap(nbs_ebs_bottom_temperature)
+nbs_ebs_st <- terra::unwrap(nbs_ebs_surface_temperature)
+
+bt_2023 <- nbs_ebs_bt[["2023"]]
+st_2023 <- nbs_ebs_st[["2023"]]
+
+plot(bt_2023)
+plot(st_2023)
+```
+
+
+load raster stack from AK groundfish  EFH - it is the combined environmental covariates that went into the 2023 EFH review which are single maps for each covariate based on combined data from the full time series. https://drive.google.com/drive/folders/1DHtPsnl0z0IdDb_Y30lWLBqxsoKwQ-xj. 
+```{r}
+library(terra)
+
+raster.stack <- readRDS("data/raster.stack.rds")
+
+names(raster.stack)
+plot(raster.stack[[1]])
+plot(raster.stack)
+```
+
+try to extract bottom temp & other covariates based on sample locations 
+```{r}
+sites <- read.csv("Data/NBS23_metadata.csv")%>%
+  unite("site", location1, depth, sep = "_", remove = F) %>%
+  select(site, longitude, latitude) %>%
+  unique()
+
+#convert site into a spatial object 
+site_vect <- terra::vect(sites, geom = c("longitude", "latitude"), crs = "EPSG:4326")
+plot(site_vect)
+
+sites_reprojected <- terra::project(site_vect, crs(raster.stack))
+# Check CRS
+print(crs(sites_reprojected))
+# Check extent
+print(ext(sites_reprojected))
+
+crs(raster.stack)
+# Check CRS
+print(crs(raster.stack))
+# Check extent
+print(ext(raster.stack))
+
+#plot to check
+btemp <- raster.stack[["btemp"]]
+plot(btemp)
+points(sites_reprojected, col = "red", pch = 19, cex = 1)
+
+#extract raster values at site locations
+site_values <- terra::extract(raster.stack, sites_reprojected)
+
+#put in one df
+site_enviro <- cbind(as.data.frame(sites_reprojected), site_values)
+```
+
+also extract bottom and surface temp from data in coldpool package
+```{r}
+plot(bt_2023)
+points(sites_reprojected, col = "red", pch = 19, cex = 1)
+
+site_bt <- terra::extract(bt_2023, sites_reprojected) %>%
+  rename(bottomtemp_2023 = "2023")
+site_st <- terra::extract(st_2023, sites_reprojected) %>%
+  rename(surfacetemp_2023 = "2023")
+
+site_enviro <- site_enviro %>%
+  left_join(site_bt) %>%
+  left_join(site_st)
+
+site_enviro_reduced <- site_enviro %>%
+  select(!coral) %>%
+  select(!pen)
+  
+```
+
+```{r}
+write.csv(site_enviro_reduced, "outputs/NBS23_covariates.csv")
+```
+

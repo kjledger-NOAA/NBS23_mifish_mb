@@ -1,0 +1,36 @@
+---
+title: "basis NBS 2023 catch"
+output: html_document
+date: "2025-01-30"
+---
+
+```{r}
+library(tidyverse)
+library(httr)
+library(jsonlite)
+```
+
+
+get catch data associated with the BASIS 2023 NBS survey
+
+```{r}
+# load basis data from AKFIN db using api that I made for AOOS
+# Note that some of the column names are modified from what is in the BASIS database
+basis<-jsonlite::fromJSON(
+  httr::content(
+    httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/basisfish_erddap'),
+    as="text", encoding="UTF-8")) %>%
+  bind_rows()
+```
+
+```{r}
+nbs23_basis <- basis %>%
+  separate(STATIONID, into = c("year", "survey", "station"), sep = c(4,8), remove = F) %>%
+  filter(year == 2023) %>%
+  filter(survey == "0201")
+```
+
+```{r}
+write.csv(nbs23_basis, "/home/kimberly.ledger/NBS23_mifish_mb/outputs/nbs23_basis_catch.csv")
+```
+

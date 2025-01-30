@@ -26,31 +26,31 @@
 - data sources = afsc-gap-products/coldpool and alaska-groundfish-efh  
 
 
-description of output files: 
-* nbs23_taxon_reads.csv - includes eDNA metabarcoding read counts and sample metadata in long format (i.e. every unique PCR replicate/sample_ID and taxonomic assignment is a row)
-extraction_ID: unique ID for eDNA extraction at ABL 
-alternative_ID: original ID given to 1-L water sample (ex. NW2301_2_10_1: NW20301 = survey ID; 2 = station ID; 10 = depth; 1 = replicate ID)
-collection_year: year of collection
-collection_month: month of collection
-collection_day: day of collection
-location1: station (matches station/STATIONNUMBER in BASIS catch)
-depth: depth of sample collection in meters
-longitude: longitude of collection
-latitude: latitude of collection
-sample_ID: unique ID for each metabarcoding PCR replicate (each DNA extraction has three PCR replicates) 
-replicate: replicate ID of each sample 
-sample_type: designation of field sample = "sample"
-taxon: taxonomic assignment 
-taxonomic_level: rank or classification of taxonomic assignment (ie. species, geneus, etc.)
-species to kingdom: full taxonomic classification of taxonomic assignment 
-reads: number of eDNA metabarcoding reads  
+description of output files:   
+* nbs23_taxon_reads.csv - includes eDNA metabarcoding read counts and sample metadata in long format (i.e. every unique PCR replicate/sample_ID and taxonomic assignment is a row)  
+extraction_ID: unique ID for eDNA extraction at ABL   
+alternative_ID: original ID given to 1-L water sample (ex. NW2301_2_10_1: NW20301 = survey ID; 2 = station ID; 10 = depth; 1 = replicate ID)  
+collection_year: year of collection  
+collection_month: month of collection  
+collection_day: day of collection  
+location1: station (matches station/STATIONNUMBER in BASIS catch)  
+depth: depth of sample collection in meters  
+longitude: longitude of collection  
+latitude: latitude of collection  
+sample_ID: unique ID for each metabarcoding PCR replicate (each DNA extraction has three PCR replicates)   
+replicate: replicate ID of each sample   
+sample_type: designation of field sample = "sample"  
+taxon: taxonomic assignment   
+taxonomic_level: rank or classification of taxonomic assignment (ie. species, geneus, etc.)  
+species to kingdom: full taxonomic classification of taxonomic assignment   
+reads: number of eDNA metabarcoding reads    
 
-* nbs23_basis_catch.csv
-STATIONNUMBER is the same as location1 in "nbs23_taxon_reads.csv"
+* nbs23_basis_catch.csv  
+STATIONNUMBER is the same as location1 in "nbs23_taxon_reads.csv"  
 
-* NBS23_covariates.csv 
-site: station_depth (ie.e 2_10 = station 2 @10m)
-bdepth through sponge are environmental covariates used in the EFH walleye pollock SDMs: https://repository.library.noaa.gov/view/noaa/48659; see Fig 154 and Table 43 for full covariate names - covariates were extracted from single maps based on combined data from the full time series
-bottomtemp_2023 and surfacetemp_2023:  temperatue data used to derive cold pool index -https://github.com/afsc-gap-products/coldpool 
+* NBS23_covariates.csv   
+site: station_depth (ie.e 2_10 = station 2 @10m)  
+bdepth through sponge are environmental covariates used in the EFH walleye pollock SDMs: https://repository.library.noaa.gov/view/noaa/48659; see Fig 154 and Table 43 for full covariate names - covariates were extracted from single maps based on combined data from the full time series  
+bottomtemp_2023 and surfacetemp_2023:  temperatue data used to derive cold pool index -https://github.com/afsc-gap-products/coldpool   
 
 
